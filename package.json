@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@yume-chan/adb": "^2.1.0",
+    "@yume-chan/stream-extra": "^2.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p ."
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
