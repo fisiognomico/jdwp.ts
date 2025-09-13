@@ -8,9 +8,15 @@ export interface JDWPPacket {
     data: Uint8Array;
 }
 
-export interface JDWPError extends Error {
-    code: number;
-    packetId: number;
+export class JDWPError extends Error {
+    constructor(
+        public code: number,
+        public packetId: number,
+        message: string
+    ) {
+        super(`JDWP Error ${code} (Packet ${packetId}): ${message}`);
+        this.name = 'JDWPError';
+    }
 }
 
 export enum JDWPCommandSet {
@@ -29,7 +35,8 @@ export enum JDWPCommandSet {
     ClassLoaderReference = 14,
     EventRequest = 15,
     StackFrame = 16,
-    ClassObjectReference = 17
+    ClassObjectReference = 17,
+    Event = 64
 }
 
 export enum JDWPEventKind {
@@ -75,6 +82,63 @@ export enum JDWPStepSize {
     LINE = 1
 }
 
+export enum JDWPTagType {
+    ARRAY = 91,           // '[' - array object
+    BYTE = 66,            // 'B' - byte value
+    CHAR = 67,            // 'C' - char value
+    OBJECT = 76,          // 'L' - object
+    FLOAT = 70,           // 'F' - float value
+    DOUBLE = 68,          // 'D' - double value
+    INT = 73,             // 'I' - int value
+    LONG = 74,            // 'J' - long value
+    SHORT = 83,           // 'S' - short value
+    VOID = 86,            // 'V' - void
+    BOOLEAN = 90,         // 'Z' - boolean value
+    STRING = 115,         // 's' - string object
+    THREAD = 116,         // 't' - thread object
+    THREAD_GROUP = 103,   // 'g' - thread group object
+    CLASS_LOADER = 108,   // 'l' - class loader object
+    CLASS_OBJECT = 99     // 'c' - class object
+}
+
+export enum JDWPTypeTag {
+    CLASS = 1,
+    INTERFACE = 2,
+    ARRAY = 3
+}
+
+export enum JDWPModifierKind {
+    COUNT = 1,
+    CONDITIONAL = 2,
+    THREAD_ONLY = 3,
+    CLASS_ONLY = 4,
+    CLASS_MATCH = 5,
+    CLASS_EXCLUDE = 6,
+    LOCATION_ONLY = 7,
+    EXCEPTION_ONLY = 8,
+    FIELD_ONLY = 9,
+    STEP = 10,
+    INSTANCE_ONLY = 11,
+    SOURCE_NAME_MATCH = 12
+}
+
+export enum JDWPInvokeOptions {
+    INVOKE_SINGLE_THREADED = 0x01,
+    INVOKE_NONVIRTUAL = 0x02
+}
+
+export enum JDWPThreadStatus {
+    ZOMBIE = 0,
+    RUNNING = 1,
+    SLEEPING = 2,
+    MONITOR = 3,
+    WAIT = 4
+}
+
+export enum JDWPSuspendStatus {
+    SUSPEND_STATUS_SUSPENDED = 0x1
+}
+
 export interface JDWPLocation {
     typeTag: number;
     classId: number;
@@ -87,7 +151,80 @@ export interface JDWPEvent {
     requestId: number;
     threadId: number;
     location?: JDWPLocation;
-    // TODO Additional event-specific fields would be added here
+    exception?: {
+        exceptionId: number;
+        catchLocation?: JDWPLocation;
+    };
+    classId?: number;
+    signature?: string;
+    fieldId?: number;
+    objectId?: number;
+    returnValue?: JDWPValue;
+}
+
+export interface JDWPValue {
+    tag: JDWPTagType;
+    value: any;  // The actual value depends on the tag
+}
+
+export interface JDWPStackFrame {
+    frameId: number;
+    location: JDWPLocation;
+    threadId: number;
+}
+
+export interface JDWPLocalVariable {
+    codeIndex: number;
+    name: string;
+    signature: string;
+    length: number;
+    slot: number;
+    isArgument: boolean;
+}
+
+export interface JDWPThreadInfo {
+    threadId: number;
+    name: string;
+    status: JDWPThreadStatus;
+    suspendStatus: JDWPSuspendStatus;
+    suspendCount: number;
+    threadGroup?: number;
+}
+
+export interface JDWPBreakpoint {
+    requestId: number;
+    location: JDWPLocation;
+    className?: string;
+    methodName?: string;
+    lineNumber?: number;
+    enabled: boolean;
+    hitCount?: number;
+    condition?: string;
+}
+
+export interface JDWPMethodInfo {
+    id: number;
+    name: string;
+    signature: string;
+    modifiers: number;
+    lineTable?: Array<{
+        lineCodeIndex: number;
+        lineNumber: number;
+    }>;
+}
+
+export interface JDWPClassInfo {
+    typeId: number;
+    signature: string;
+    status: number;
+    interfaces: number[];
+    methods: JDWPMethodInfo[];
+    fields: Array<{
+        id: number;
+        name: string;
+        signature: string;
+        modifiers: number;
+    }>;
 }
 
 // Abstract transport layer
@@ -99,14 +236,64 @@ export interface JDWPTransport {
     isConnected(): boolean;
 }
 
-export class JDWPError extends Error {
-    constructor(
-        public code: number,
-        public packetId: number,
-        message: string
-    ) {
-        super(`JDWP Error ${code} (Packet ${packetId}): ${message}`);
-        this.name = 'JDWPError';
-    }
+// Error codes
+export enum JDWPErrorCode {
+    NONE = 0,
+    INVALID_THREAD = 10,
+    INVALID_THREAD_GROUP = 11,
+    INVALID_PRIORITY = 12,
+    THREAD_NOT_SUSPENDED = 13,
+    THREAD_SUSPENDED = 14,
+    THREAD_NOT_ALIVE = 15,
+    INVALID_OBJECT = 20,
+    INVALID_CLASS = 21,
+    CLASS_NOT_PREPARED = 22,
+    INVALID_METHODID = 23,
+    INVALID_LOCATION = 24,
+    INVALID_FIELDID = 25,
+    INVALID_FRAMEID = 30,
+    NO_MORE_FRAMES = 31,
+    OPAQUE_FRAME = 32,
+    NOT_CURRENT_FRAME = 33,
+    TYPE_MISMATCH = 34,
+    INVALID_SLOT = 35,
+    DUPLICATE = 40,
+    NOT_FOUND = 41,
+    INVALID_MONITOR = 50,
+    NOT_MONITOR_OWNER = 51,
+    INTERRUPT = 52,
+    INVALID_CLASS_FORMAT = 60,
+    CIRCULAR_CLASS_DEFINITION = 61,
+    FAILS_VERIFICATION = 62,
+    ADD_METHOD_NOT_IMPLEMENTED = 63,
+    SCHEMA_CHANGE_NOT_IMPLEMENTED = 64,
+    INVALID_TYPESTATE = 65,
+    HIERARCHY_CHANGE_NOT_IMPLEMENTED = 66,
+    DELETE_METHOD_NOT_IMPLEMENTED = 67,
+    UNSUPPORTED_VERSION = 68,
+    NAMES_DONT_MATCH = 69,
+    CLASS_MODIFIERS_CHANGE_NOT_IMPLEMENTED = 70,
+    METHOD_MODIFIERS_CHANGE_NOT_IMPLEMENTED = 71,
+    NOT_IMPLEMENTED = 99,
+    NULL_POINTER = 100,
+    ABSENT_INFORMATION = 101,
+    INVALID_EVENT_TYPE = 102,
+    ILLEGAL_ARGUMENT = 103,
+    OUT_OF_MEMORY = 110,
+    ACCESS_DENIED = 111,
+    VM_DEAD = 112,
+    INTERNAL = 113,
+    UNATTACHED_THREAD = 115,
+    INVALID_TAG = 500,
+    ALREADY_INVOKING = 502,
+    INVALID_INDEX = 503,
+    INVALID_LENGTH = 504,
+    INVALID_STRING = 506,
+    INVALID_CLASS_LOADER = 507,
+    INVALID_ARRAY = 508,
+    TRANSPORT_LOAD = 509,
+    TRANSPORT_INIT = 510,
+    NATIVE_METHOD = 511,
+    INVALID_COUNT = 512
 }
 
