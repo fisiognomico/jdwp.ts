@@ -618,7 +618,7 @@ export class DebugManager {
             initialDelayedAckBytes: 0,
         });
 
-        const socket = await dispatcher.createSocket('jdwp:track-pids');
+        const socket = await dispatcher.createSocket('jdwp');
         const reader = socket.readable.getReader();
 
         try {
@@ -627,10 +627,6 @@ export class DebugManager {
 
             // Skip 4-byte hex length if present
             let data = value;
-            if (value.length > 4 && /^[0-9a-fA-F]{4}$/.test(new TextDecoder().decode(value.slice(0, 4)))) {
-                data = value.slice(4);
-            }
-
             const pidsText = new TextDecoder().decode(data).trim();
             if (!pidsText) return [];
 
@@ -670,7 +666,7 @@ export class DebugManager {
         const config = this.config as TCPConfig;
         const deviceSelector = undefined;
         const transport = await config.serverClient.createTransport(deviceSelector);
-        const socket = await transport.connect('jdwp:track-pids');
+        const socket = await transport.connect('jdwp');
 
         try {
             const reader = socket.readable.getReader();
@@ -679,9 +675,6 @@ export class DebugManager {
 
             // Skip 4-byte hex length if present
             let data = value;
-            if (value.length > 4 && /^[0-9a-fA-F]{4}$/.test(new TextDecoder().decode(value.slice(0, 4)))) {
-                data = value.slice(4);
-            }
 
             const pidsText = new TextDecoder().decode(data).trim();
             if (!pidsText) return [];
@@ -703,7 +696,10 @@ export class DebugManager {
             const deviceSelector = undefined;
             const transport = await config.serverClient.createTransport(deviceSelector);
 
-            const socket = await transport.connect("shell:ps");
+            // TODO maybe move to another function that manages console
+            // output?
+            const shellCommand = "shell,v2,,raw:ps"
+            const socket = await transport.connect(shellCommand);
             const reader = socket.readable.getReader();
             let output = '';
 
