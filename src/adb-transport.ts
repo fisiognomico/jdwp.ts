@@ -3,6 +3,7 @@ import {Adb, AdbDaemonConnection, AdbSocket, AdbPacketDispatcher,
     AdbPacketDispatcherOptions} from "@yume-chan/adb";
 import {ReadableStreamDefaultReader, WritableStreamDefaultWriter } from "@yume-chan/stream-extra";
 import { JDWPTransport } from './protocol';
+import { performJDWPHandshake } from "./lib";
 
 export class WebUSBJDWPTransport implements JDWPTransport {
     private socket: AdbSocket | null = null;
@@ -43,7 +44,8 @@ export class WebUSBJDWPTransport implements JDWPTransport {
             this.connected = true;
 
             // Perform JDWP handshake
-            await this.performHandshake();
+            this.pendingData = await performJDWPHandshake(this.reader, this.writer);
+            console.log("[+] Pending data: ", this.pendingData.buffer);
 
             // Start reading loop
             this.readLoop().catch(error => {
@@ -55,44 +57,6 @@ export class WebUSBJDWPTransport implements JDWPTransport {
         } catch (error) {
             throw new Error(`Failed to connect to JDWP service for PID ${this.pid}: ${error}`);
         }
-    }
-
-    private async performHandshake(): Promise<void> {
-        if (!this.writer || !this.reader) {
-            throw new Error('Transport not connected');
-        }
-
-        // Send JDWP handshake
-        const handshake = new TextEncoder().encode('JDWP-Handshake');
-        await this.writer.write(handshake);
-
-        // Read handshake response
-        const response = new Uint8Array(14);
-        let offset = 0;
-
-        while (offset < 14) {
-            const { value, done } = await this.reader.read();
-            if (done) {
-                throw new Error('Connection closed during handshake');
-            }
-
-            const remaining = 14 - offset;
-            const toCopy = Math.min(remaining, value!.length);
-            response.set(value!.slice(0, toCopy), offset);
-            offset += toCopy;
-
-            // If we read more than needed, save it to pending data
-            if (value!.length > toCopy) {
-                this.pendingData = value!.slice(toCopy);
-            }
-        }
-
-        const responseStr = new TextDecoder().decode(response);
-        if (responseStr !== 'JDWP-Handshake') {
-            throw new Error(`Invalid JDWP handshake response: ${responseStr}`);
-        }
-
-        console.log('JDWP handshake successful');
     }
 
     async disconnect(): Promise<void> {

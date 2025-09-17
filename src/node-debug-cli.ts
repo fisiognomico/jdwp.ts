@@ -10,6 +10,7 @@ import chalk from "chalk";
 // Import your JDWP modules
 import { JDWPClient } from './client';
 import { JDWPTransport } from './protocol';
+import { performJDWPHandshake } from "./lib";
 
 class NodeTcpJDWPTransport implements JDWPTransport {
     private socket: AdbSocket | null = null;
@@ -41,6 +42,10 @@ class NodeTcpJDWPTransport implements JDWPTransport {
             this.reader = socket.readable.getReader();
             this.writer = socket.writable.getWriter();
             this.connected = true;
+
+            // Perform JDWP handshake
+            this.pendingData = await performJDWPHandshake(this.reader, this.writer);
+            console.log("[+] Pending data: ", this.pendingData.buffer);
 
             // Start reading loop
             this.readLoop().catch(error => {

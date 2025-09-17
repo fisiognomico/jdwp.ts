@@ -740,9 +740,12 @@ export class JDWPClient {
         const encoder = new TextEncoder();
         const signatureBytes = encoder.encode(signature);
 
-        const data = new Uint8Array(signatureBytes.length + 1);
-        data.set(signatureBytes, 0);
-        data[signatureBytes.length] = 0; // Null terminator
+        // Create buffer with 4-byte length prefix
+        const data = new Uint8Array(4 + signatureBytes.length);
+        // Write length (4 bytes, big-endian)
+        this.writeUint32(data, 0, signatureBytes.length);
+        // Write string bytes, no null-termination
+        data.set(signatureBytes, 4);
 
         const response = await this.sendCommand(
             JDWPCommandSet.VirtualMachine,
