@@ -45,7 +45,6 @@ class NodeTcpJDWPTransport implements JDWPTransport {
 
             // Perform JDWP handshake
             this.pendingData = await performJDWPHandshake(this.reader, this.writer);
-            console.log("[+] Pending data: ", this.pendingData.buffer);
 
             // Start reading loop
             this.readLoop().catch(error => {
@@ -114,7 +113,11 @@ class NodeTcpJDWPTransport implements JDWPTransport {
     }
 
     private async readLoop(): Promise<void> {
-        if (!this.reader) return;
+        if (!this.reader) {
+            console.error('ERROR: No reader!');
+            return;
+        }
+
 
         try {
             while (this.connected) {
@@ -137,9 +140,7 @@ class NodeTcpJDWPTransport implements JDWPTransport {
                 }
             }
         } catch (error) {
-            if (this.connected) {
-                console.error('Error in JDWP read loop:', error);
-            }
+            console.error('Error in JDWP read loop:', error);
             this.handleDisconnect();
         }
     }
