@@ -8,11 +8,11 @@
     "build:browser": "webpack",
     "serve": "webpack serve --open",
     "cli": "ts-node src/node-debug-cli.ts",
-    "debug:example": "ts-node src/example-debug-myapplication.ts",
     "test:parse-packet": "ts-node src/tests/parse-events.ts",
     "test:minimal": "ts-node src/tests/minimal-packets.ts",
     "test:raw": "ts-node src/tests/raw-events.ts",
     "test:readloop": "ts-node src/tests/read-loop.ts",
+    "debug:example": "ts-node src/spawn-and-debug.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts"
   },
