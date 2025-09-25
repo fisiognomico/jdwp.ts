@@ -607,6 +607,14 @@ export class DebugManager {
         }
     }
 
+    async spawnAppDebug(packageName: string): Promise<boolean> {
+        if(this.config.type === 'web') {
+            return await this.spawnAppWebUSB(packageName);
+        } else {
+            return await this.spawnAppTCP(packageName);
+        }
+    }
+
     private async getDebuggablePidsWebUSB():
         Promise<number[]> {
         const config = this.config as WebUSBConfig;
@@ -638,6 +646,28 @@ export class DebugManager {
             await socket.close();
         }
     }
+
+
+    private async spawnAppWebUSB(packageName: string): Promise<boolean> {
+        const config = this.config as WebUSBConfig;
+        try {
+            // const activityCmd = `am start -n ${packageName}/.MainActivity`;
+            const activityCmd = `am start -D -n ${packageName}/.MainActivity`;
+            const processDesc = await adbRun(config.adb, activityCmd);
+            const output = processDesc.output;
+
+            const lines = output.split('\n');
+            for (const line of lines) {
+                if (line.includes("Starting:")) {
+                    return true;
+                }
+            }
+            throw new Error(`Not able to spawn ${packageName}: ${output}`);
+        } catch(error) {
+            throw new Error(`Failed to spawn ${packageName}: ${error}`);
+        }
+    }
+
 
     private async findAppPidWebUSB(packageName: string): Promise<number> {
         const config = this.config as WebUSBConfig;
@@ -728,6 +758,35 @@ export class DebugManager {
             throw new Error(`Failed to find PID for ${packageName}: ${error}`);
         }
 
+    }
+
+    private async spawnAppTCP(packageName: string): Promise<boolean> {
+        const config = this.config as TCPConfig;
+        try {
+            // const activityCmd = `shell,v2,,raw:am start -n ${packageName}/.MainActivity`;
+            const activityCmd = `shell,v2,,raw:am start -D -n ${packageName}/.MainActivity`;
+            const deviceSelector = undefined;
+            const transport = await config.serverClient.createTransport(deviceSelector);
+
+            const socket = await transport.connect(activityCmd);
+            const reader = socket.readable.getReader();
+            let output = '';
+
+            while(true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                output += new TextDecoder().decode(value);
+            }
+            await socket.close();
+
+            if(!output.includes('Starting:')) {
+                throw new Error(`Failed to start app ${packageName}: ${output}`);
+            }
+
+            return true;
+        } catch(error) {
+            throw new Error(`Failed to spawn ${packageName}: ${error}`);
+        }
     }
 
     // === Event System ===
