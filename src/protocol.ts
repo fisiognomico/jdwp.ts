@@ -82,6 +82,13 @@ export enum JDWPStepSize {
     LINE = 1
 }
 
+export enum JDWPClassPrepare {
+    VERIFIED = 1,
+    PREPARED = 2,
+    INITIALIZED = 4,
+    ERROR = 8
+}
+
 export enum JDWPTagType {
     ARRAY = 91,           // '[' - array object
     BYTE = 66,            // 'B' - byte value
@@ -122,6 +129,11 @@ export enum JDWPModifierKind {
     SOURCE_NAME_MATCH = 12
 }
 
+export interface EventModifier {
+    kind: JDWPModifierKind;
+    data: Uint8Array;
+}
+
 export enum JDWPInvokeOptions {
     INVOKE_SINGLE_THREADED = 0x01,
     INVOKE_NONVIRTUAL = 0x02
@@ -160,7 +172,12 @@ export interface JDWPEvent {
     fieldId?: number;
     objectId?: number;
     returnValue?: JDWPValue;
+    typeId?: number;
+    refTypeTag?: number;
+    // Reference to JDWPClassStatus
+    status?: number;
 }
+
 
 export interface JDWPValue {
     tag: JDWPTagType;

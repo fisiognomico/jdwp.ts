@@ -13,7 +13,9 @@ import {
     JDWPValue,
     JDWPTagType,
     JDWPStackFrame,
-    JDWPLocalVariable
+    JDWPLocalVariable,
+    JDWPModifierKind,
+    EventModifier
 } from './protocol';
 
 
@@ -27,13 +29,11 @@ export class JDWPClient {
         timeout: number
     }> = new Map();
 
-    // Cache for performance
-    private classSignatureCache: Map<number, string> = new Map();
-    private methodNameCache: Map<number, string> = new Map();
+    // TODO Cache for performance
+    // private classSignatureCache: Map<number, string> = new Map();
+    // private methodNameCache: Map<number, string> = new Map();
 
     constructor(private transport: JDWPTransport) {}
-
-
 
     async connect(): Promise<void> {
         try {
@@ -55,9 +55,11 @@ export class JDWPClient {
         await this.transport.disconnect();
     }
 
+    // Handle response and event packets
     private async handlePacket(data: Uint8Array): Promise<void> {
         try {
             const packet = this.parsePacket(data);
+            // console.info(`[PACKET] Flags: 0x${packet.flags.toString(16)}, CS: ${packet.commandSet}, Cmd: ${packet.command}, Len: ${packet.data.length}`);
 
             if (packet.flags === 0x80) { // Response packet
                 const handler = this.responseHandlers.get(packet.id);
@@ -75,24 +77,36 @@ export class JDWPClient {
                     }
 
                     handler.resolve(packet);
+                } else {
+                    console.log(" [+] Handler not found for packet ", packet.flags);
                 }
             } else { // Event packet
+                // console.info(`[EVENT CHECK] Calling handleEventPacket`);
                 this.handleEventPacket(packet);
             }
         } catch (error) {
             console.error('Error handling JDWP packet:', error);
+            console.info('Raw packet data:', Array.from(data.slice(0, Math.min(32, data.length))).map(b => b.toString(16).padStart(2, '0')).join(' '));
         }
     }
 
+    // Event management
     private handleEventPacket(packet: JDWPPacket): void {
         if (packet.commandSet === 64 && packet.command === 100) { // Composite event
             const events = this.parseCompositeEvent(packet.data);
+            // console.log(`[COMPOSITE EVENT] Parsed ${events.length} events`);
             for (const event of events) {
                 const callback = this.eventCallbacks.get(event.requestId);
                 if (callback) {
+                    // console.info(`[CALLBACK] Found for request ${event.requestId}`);
                     callback(event);
+                } else {
+                    console.log(`[NO CALLBACK] for request ${event.requestId}`);
+                    // console.info(`[REGISTERED CALLBACKS] ${Array.from(this.eventCallbacks.keys()).join(', ')}`);
                 }
             }
+        } else {
+            console.log(`[NOT COMPOSITE] CS: ${packet.commandSet}, Cmd: ${packet.command}`);
         }
     }
 
@@ -106,6 +120,8 @@ export class JDWPClient {
         const eventsCount = this.readUint32(data, offset);
         offset += 4;
 
+        // console.info(`[COMPOSITE EVENT] Suspend: ${suspendPolicy}, Count: ${eventsCount}`);
+
         for (let i = 0; i < eventsCount; i++) {
             const eventKind = this.readUint8(data, offset) as JDWPEventKind;
             offset += 1;
@@ -116,6 +132,8 @@ export class JDWPClient {
             const threadId = this.readObjectId(data, offset);
             offset += 8;
 
+            // console.info(`[EVENT] Kind: ${eventKind}, Request: ${requestId}, Thread: ${threadId}`);
+
             const event: JDWPEvent = {
                 eventKind,
                 requestId,
@@ -125,9 +143,37 @@ export class JDWPClient {
             // Parse event-specific data
             switch (eventKind) {
                 case JDWPEventKind.BREAKPOINT:
+                case JDWPEventKind.SINGLE_STEP:
                     event.location = this.readLocation(data, offset);
                     offset += this.getLocationSize();
+                    console.info(` [BREAKPOINT] Location: ${event.location}, eventID : ${event.requestId}`);
                     break;
+                case JDWPEventKind.CLASS_PREPARE:
+                    const typeTag = this.readUint8(data, offset);
+                    offset += 1;
+                    event.refTypeTag = typeTag;
+
+                    const typeId = this.readReferenceTypeId(data, offset);
+                    offset += 8;
+                    event.typeId = typeId;
+
+                    // Read string length and signature
+                    const signLength = this.readUint32(data, offset);
+                    offset += 4;
+
+                    const signature = new TextDecoder().decode(
+                        data.slice(offset, offset + signLength)
+                    );
+                    offset += signLength;
+                    event.signature = signature;
+
+                    const classStatus = this.readUint32(data, offset);
+                    offset += 4;
+                    event.status = classStatus;
+
+                    // console.info(`[CLASS_PREPARE] Signature: ${event.signature}, Status: ${event.status}`);
+                    break;
+
                 // Handle other event types
                 default:
                     // Skip unknown event data
@@ -138,6 +184,57 @@ export class JDWPClient {
         }
 
         return events;
+    }
+
+    async setupEvent(
+        eventKind: JDWPEventKind,
+        suspendPolicy: JDWPSuspendPolicy = JDWPSuspendPolicy.NONE,
+        eventModifiers: EventModifier[] = []
+    ): Promise<number> {
+        let size = 6; // eventKind (1) + suspend (1) + modifiersCount (4)
+        for (const mod of eventModifiers) {
+            size += 1 + mod.data.length; // modKind(1) + data
+        }
+
+        const data = new Uint8Array(size);
+        let offset = 0;
+
+        this.writeUint8(data, offset++, eventKind);
+        this.writeUint8(data, offset++, suspendPolicy);
+        this.writeUint32(data, offset, eventModifiers.length);
+        offset += 4;
+
+        // Write modifiers
+        for (const mod of eventModifiers) {
+            this.writeUint8(data, offset++, mod.kind);
+            data.set(mod.data, offset);
+            offset += mod.data.length;
+        }
+
+        const response = await this.sendCommand(15, 1, data);
+        return this.readUint32(response.data, 0);
+    }
+
+    async setupClassPrepareEvent(classPattern?: string): Promise<number> {
+        const modifiers: EventModifier[] = [];
+
+        if (classPattern) {
+            const patternBytes = new TextEncoder().encode(classPattern);
+            const modData = new Uint8Array(4 + patternBytes.length);
+            this.writeUint32(modData, 0, patternBytes.length);
+            modData.set(patternBytes, 4);
+
+            modifiers.push({
+                kind: JDWPModifierKind.CLASS_MATCH,
+                data: modData
+            });
+        }
+
+        return this.setupEvent(
+            JDWPEventKind.CLASS_PREPARE,
+            JDWPSuspendPolicy.NONE,
+            modifiers
+        );
     }
 
     async sendCommand(
@@ -664,41 +761,30 @@ export class JDWPClient {
     }
 
     // High-level command methods
-    async setBreakpoint(classId: number, methodId: number, index: number = 0): Promise<number> {
-        const requestId = this.eventRequestIdCounter++;
-        const data = new Uint8Array(26);
-        let offset = 0;
+    async setBreakpointAtLocation(
+        location: JDWPLocation,
+        suspendPolicy: JDWPSuspendPolicy = JDWPSuspendPolicy.ALL
+    ): Promise<number> {
+        const modData = new Uint8Array(25); // size of a location
+        this.writeLocation(modData, 0, location);
 
-        // Event kind
-        this.writeUint8(data, offset, JDWPEventKind.BREAKPOINT);
-        offset += 1;
+        const modifiers: EventModifier[] = [{
+            kind: JDWPModifierKind.LOCATION_ONLY,
+            data: modData
+        }];
 
-        // Suspend policy
-        this.writeUint8(data, offset, JDWPSuspendPolicy.ALL);
-        offset += 1;
-
-        // Modifiers count
-        this.writeUint32(data, offset, 1);
-        offset += 4;
-
-        // Location modifier
-        this.writeUint8(data, offset, 1); // LocationOnly modifier
-        offset += 1;
-
-        // Location
-        this.writeLocation(data, offset, {
-            typeTag: 1, // Class
-            classId,
-            methodId,
-            index
-        });
-
-        await this.sendCommand(15, 1, data); // EventRequest.Set
-
-        return requestId;
+        return this.setupEvent(
+            JDWPEventKind.BREAKPOINT,
+            suspendPolicy,
+            modifiers
+        );
     }
 
-    async setBreakpointAtMethodEntry(classSignature: string, methodName: string): Promise<number> {
+    async setBreakpointAtMethodEntry(
+        classSignature: string,
+        methodName: string,
+        suspendPolicy: JDWPSuspendPolicy = JDWPSuspendPolicy.ALL
+    ): Promise<number> {
         const classId = await this.getReferenceTypeId(classSignature);
         const methods = await this.getMethods(classId);
         const method = methods.find(m => m.name === methodName);
@@ -707,7 +793,14 @@ export class JDWPClient {
             throw new Error(`Method ${methodName} not found in class ${classSignature}`);
         }
 
-        return this.setBreakpoint(classId, method.id, 0);
+        const location: JDWPLocation = {
+            typeTag: 1, // Class
+            classId,
+            methodId: method.id,
+            index: 0 // Method entry
+        };
+
+        return this.setBreakpointAtLocation(location, suspendPolicy);
     }
 
     async resumeThread(threadId: number): Promise<void> {
@@ -961,13 +1054,92 @@ export class JDWPClient {
         // This is a simplified implementation
         // A real implementation would properly parse each event type
         switch (eventKind) {
-            case JDWPEventKind.BREAKPOINT:
-                return this.getLocationSize();
-            case JDWPEventKind.EXCEPTION:
-                return 8 + 8 + 1; // exceptionId + threadId + catchLocation
-            // Add cases for other event types
-            default:
-                return 0; // Unknown event, skip
+        case JDWPEventKind.SINGLE_STEP:
+        case JDWPEventKind.BREAKPOINT:
+            return this.getLocationSize(); // 25 bytes
+
+        case JDWPEventKind.FRAME_POP:
+            return this.getLocationSize(); // 25 bytes
+
+        case JDWPEventKind.EXCEPTION:
+            return this.getLocationSize() + 8 + this.getLocationSize(); // throwLocation + exception + catchLocation
+
+        case JDWPEventKind.USER_DEFINED:
+            return 0; // No additional data
+
+        case JDWPEventKind.THREAD_START:
+        case JDWPEventKind.THREAD_DEATH:
+            return 0; // Thread ID already read in main loop
+
+        case JDWPEventKind.CLASS_PREPARE:
+            // typeTag(1) + typeID(8) + signature(string) + status(4)
+            const sigLength = this.readUint32(data, offset + 9);
+            return 1 + 8 + 4 + sigLength + 4;
+
+        case JDWPEventKind.CLASS_UNLOAD:
+            // signature(string)
+            const unloadSigLength = this.readUint32(data, offset);
+            return 4 + unloadSigLength;
+
+        case JDWPEventKind.CLASS_LOAD:
+            // typeTag(1) + typeID(8) + signature(string) + status(4)
+            const loadSigLength = this.readUint32(data, offset + 9);
+            return 1 + 8 + 4 + loadSigLength + 4;
+
+        case JDWPEventKind.FIELD_ACCESS:
+        case JDWPEventKind.FIELD_MODIFICATION:
+            // typeTag(1) + typeID(8) + fieldID(8) + objectID(8) + location(25)
+            return 1 + 8 + 8 + 8 + this.getLocationSize();
+
+        case JDWPEventKind.EXCEPTION_CATCH:
+            // location(25) + typeTag(1) + typeID(8) + methodID(8) + index(8)
+            return this.getLocationSize() + 1 + 8 + 8 + 8;
+
+        case JDWPEventKind.METHOD_ENTRY:
+        case JDWPEventKind.METHOD_EXIT:
+            return this.getLocationSize(); // 25 bytes
+
+        case JDWPEventKind.METHOD_EXIT_WITH_RETURN_VALUE:
+            // location(25) + value(variable)
+            const valueTag = this.readUint8(data, offset + this.getLocationSize());
+            return this.getLocationSize() + this.getValueSize(valueTag as JDWPTagType);
+
+        case JDWPEventKind.MONITOR_CONTENDED_ENTER:
+        case JDWPEventKind.MONITOR_CONTENDED_ENTERED:
+        case JDWPEventKind.MONITOR_WAIT:
+        case JDWPEventKind.MONITOR_WAITED:
+            // typeTag(1) + typeID(8) + location(25)
+            return 1 + 8 + this.getLocationSize();
+
+        case JDWPEventKind.VM_START:
+            return 0; // Thread ID already read
+
+        case JDWPEventKind.VM_DEATH:
+        case JDWPEventKind.VM_DISCONNECTED:
+            return 0; // No additional data
+
+        default:
+            console.warn(`Unknown event kind: ${eventKind}, assuming no additional data`);
+            return 0;
+        }
+    }
+
+    // For debugging porpouse
+    public testParseEvent(bytes: Uint8Array): void {
+        // Wireshark directly outputs in C arrays
+        // const hex = hexString.replace(/\s+/g, '');
+        // const bytes = new Uint8Array(hex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
+
+        console.log(`Testing parse of ${bytes.length} bytes`);
+        const packet = this.parsePacket(bytes);
+        console.info(`[PACKET] Flags: 0x${packet.flags.toString(16)}, CS: ${packet.commandSet}, Cmd: ${packet.command}, Len: ${packet.data.length}`);
+        const handle = this.handlePacket(bytes);
+
+        console.log("Number of registered handlers: ", this.responseHandlers.size);
+        if (packet.commandSet === 64 && packet.command === 100) {
+            const events = this.parseCompositeEvent(packet.data);
+            console.log(`Parsed ${events.length} events:`, events);
         }
     }
 }
+
