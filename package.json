@@ -10,6 +10,7 @@
     "cli": "ts-node src/node-debug-cli.ts",
     "debug:example": "ts-node src/example-debug-myapplication.ts",
     "test:parse-packet": "ts-node src/tests/parse-events.ts",
+    "test:minimal": "ts-node src/tests/minimal-packets.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts"
   },
