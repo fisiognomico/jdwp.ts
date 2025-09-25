@@ -12,6 +12,7 @@
     "test:parse-packet": "ts-node src/tests/parse-events.ts",
     "test:minimal": "ts-node src/tests/minimal-packets.ts",
     "test:raw": "ts-node src/tests/raw-events.ts",
+    "test:readloop": "ts-node src/tests/read-loop.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts"
   },
