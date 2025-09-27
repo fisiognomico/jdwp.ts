@@ -3,6 +3,7 @@ import { JDWPClient } from './client';
 import { WebUSBJDWPTransport } from './adb-transport';
 import {Adb, AdbDaemonConnection, AdbPacketDispatcher, AdbServerClient} from "@yume-chan/adb";
 import {
+    JDWPCommandSet,
     JDWPEvent,
     JDWPEventKind,
     JDWPBreakpoint,
@@ -16,6 +17,7 @@ import {
     JDWPSuspendStatus,
     JDWPStepSize,
     JDWPStepDepth,
+    JDWPVMCommands,
     JDWPTransport
 } from './protocol';
 import { NodeTcpJDWPTransport } from "./node-debug-cli";
@@ -173,8 +175,8 @@ export class DebugManager {
         pid: number,
         className: string,
         methodName: string,
-        lineNumber?: number
-    ): Promise<JDWPBreakpoint> {
+        lineNumber: number = 0
+    ): Promise<number> {
         const session = this.getSession(pid);
 
         try {
@@ -202,15 +204,10 @@ export class DebugManager {
 
             session.breakpoints.set(requestId, breakpoint);
 
-            // Register event handler
-            session.client.onEvent(requestId, (event: JDWPEvent) => {
-                this.handleBreakpointEvent(session, breakpoint, event);
-            });
-
             console.log(`Breakpoint set at ${className}.${methodName}`);
             this.emit('breakpointSet', { session, breakpoint });
 
-            return breakpoint;
+            return requestId;
         } catch (error) {
             throw new Error(`Failed to set breakpoint: ${error}`);
         }
@@ -300,6 +297,16 @@ export class DebugManager {
         session.suspendedThreads.delete(threadId);
 
         this.emit('threadResumed', { session, threadId });
+    }
+
+    // Resume execution
+    async resume(pid: number): Promise<void> {
+        const session = this.getSession(pid);
+        await session.client.sendCommand(
+            JDWPCommandSet.VirtualMachine,
+            JDWPVMCommands.Resume, // ResumeVM
+            new Uint8Array(0) // No data is required!
+        );
     }
 
     async stepThread(
@@ -607,11 +614,11 @@ export class DebugManager {
         }
     }
 
-    async spawnAppDebug(packageName: string): Promise<boolean> {
+    async executeCommand(command: string): Promise<string[]> {
         if(this.config.type === 'web') {
-            return await this.spawnAppWebUSB(packageName);
+            return await this.executeCommandWebUSB(command);
         } else {
-            return await this.spawnAppTCP(packageName);
+            return await this.executeCommandTCP(command);
         }
     }
 
@@ -648,23 +655,17 @@ export class DebugManager {
     }
 
 
-    private async spawnAppWebUSB(packageName: string): Promise<boolean> {
+    private async executeCommandWebUSB(command: string): Promise<string[]> {
         const config = this.config as WebUSBConfig;
         try {
-            // const activityCmd = `am start -n ${packageName}/.MainActivity`;
-            const activityCmd = `am start -D -n ${packageName}/.MainActivity`;
-            const processDesc = await adbRun(config.adb, activityCmd);
+            const processDesc = await adbRun(config.adb, command);
             const output = processDesc.output;
 
             const lines = output.split('\n');
-            for (const line of lines) {
-                if (line.includes("Starting:")) {
-                    return true;
-                }
-            }
-            throw new Error(`Not able to spawn ${packageName}: ${output}`);
+            return lines;
+
         } catch(error) {
-            throw new Error(`Failed to spawn ${packageName}: ${error}`);
+            throw new Error(`Failed to execute ${command}: ${error}`);
         }
     }
 
@@ -760,15 +761,13 @@ export class DebugManager {
 
     }
 
-    private async spawnAppTCP(packageName: string): Promise<boolean> {
+    private async executeCommandTCP(command: string): Promise<string[]> {
         const config = this.config as TCPConfig;
         try {
-            // const activityCmd = `shell,v2,,raw:am start -n ${packageName}/.MainActivity`;
-            const activityCmd = `shell,v2,,raw:am start -D -n ${packageName}/.MainActivity`;
             const deviceSelector = undefined;
             const transport = await config.serverClient.createTransport(deviceSelector);
 
-            const socket = await transport.connect(activityCmd);
+            const socket = await transport.connect(command);
             const reader = socket.readable.getReader();
             let output = '';
 
@@ -777,15 +776,13 @@ export class DebugManager {
                 if (done) break;
                 output += new TextDecoder().decode(value);
             }
+
+            const lines = output.split('/n');
             await socket.close();
-
-            if(!output.includes('Starting:')) {
-                throw new Error(`Failed to start app ${packageName}: ${output}`);
-            }
-
-            return true;
+            await transport.close();
+            return lines;
         } catch(error) {
-            throw new Error(`Failed to spawn ${packageName}: ${error}`);
+            throw new Error(`Failed to execute ${command}: ${error}`);
         }
     }
 
@@ -816,6 +813,18 @@ export class DebugManager {
         if (listeners) {
             listeners.delete(listener);
         }
+    }
+
+    onEvent(pid: number, requestId: number,
+            listener: (event: JDWPEvent) => void): void
+    {
+        const session = this.sessions.get(pid);
+        return session!.client.onEvent(requestId, listener);
+    }
+
+    removeEventListener(pid: number, requestId: number): void {
+        const session = this.sessions.get(pid);
+        return session!.client.removeEventListener(requestId);
     }
 
     // Binary helpers
