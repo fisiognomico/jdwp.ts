@@ -12,7 +12,7 @@
     "test:minimal": "ts-node src/tests/minimal-packets.ts",
     "test:raw": "ts-node src/tests/raw-events.ts",
     "test:readloop": "ts-node src/tests/read-loop.ts",
-    "debug:example": "ts-node src/spawn-and-debug.ts",
+    "debug:example": "ts-node src/examples/spawn-and-debug.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts"
   },
