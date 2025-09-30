@@ -15,6 +15,7 @@ import {
     JDWPStackFrame,
     JDWPLocalVariable,
     JDWPModifierKind,
+    JDWPVMCommands,
     EventModifier
 } from './protocol';
 
@@ -1141,5 +1142,263 @@ export class JDWPClient {
             console.log(`Parsed ${events.length} events:`, events);
         }
     }
+
+    // Utilities to invoke debugged code.
+
+    /**
+     * Create a new string object in the JVM
+     */
+    async createString(value: string): Promise<number> {
+        const encoder = new TextEncoder();
+        const stringBytes = encoder.encode(value);
+
+        const data = new Uint8Array(4 + stringBytes.length);
+        this.writeUint32(data, 0, stringBytes.length);
+        data.set(stringBytes, 4);
+
+        const response = await this.sendCommand(
+            JDWPCommandSet.VirtualMachine,
+            JDWPVMCommands.CreateString,
+            data
+        );
+
+        // Response contains the string object ID
+        return this.readObjectId(response.data, 0);
+    }
+    /*
+     * Get field ID by name from a class
+     */
+    async getFieldId(
+        classId: number,
+        fieldName: string,
+        signature: string
+    ): Promise<number> {
+        const fieldsData = new Uint8Array(8);
+        this.writeReferenceTypeId(fieldsData, 0, classId);
+
+        const response = await this.sendCommand(
+            JDWPCommandSet.ReferenceType,
+            4, // Fields command
+            fieldsData
+        );
+
+        const fields = this.parseFields(response.data);
+        const field = fields.find(f => f.name === fieldName && f.signature === signature);
+
+        if(!field) {
+            throw new Error(`Field ${fieldName} with signature ${signature} not found`);
+        }
+
+        return field.id;
+    }
+
+    /*
+     * Invoke a static method from a class
+     */
+    async invokeStaticMethod(
+        classId: number,
+        threadId: number,
+        methodId: number,
+        args: JDWPValue[] = [],
+        options: number = 0
+    ): Promise<JDWPValue> {
+        const data = new Uint8Array(28 + args.length * 9); // Approximate size
+        let offset = 0;
+
+        // Class ID (8 bytes)
+        this.writeReferenceTypeId(data, offset, classId);
+        offset += 8;
+
+        // Thread ID (8 bytes)
+        this.writeReferenceTypeId(data, offset, threadId);
+        offset += 8;
+
+        // Method ID (8 bytes)
+        this.writeReferenceTypeId(data, offset, methodId);
+        offset += 8;
+
+        // Get arguments count (4 bytes)
+        this.writeUint32(data, offset, args.length);
+        offset += 4;
+
+        // Arguments
+        for (const arg in args) {
+            const wrapper: JDWPValue = {tag: JDWPTagType.STRING, value: arg};
+            offset += this.writeValue(data, offset, wrapper);
+        }
+
+        // Invoke options, typically 0
+        this.writeUint32(data, offset, 0);
+
+        const response = await this.sendCommand(
+            JDWPCommandSet.ClassType,
+            3, // Invoke Method
+            data.slice(0, offset+4)
+        );
+
+        return this.parseValue(response.data, 0);
+    }
+
+    /*
+     * Get methodId by name and signature
+     */
+    async getMethodId(
+        classId: number,
+        methodName: string,
+        signature: string
+    ): Promise<number> {
+        // We need to get full method info with signature
+        const methodsData = new Uint8Array(8);
+        this.writeReferenceTypeId(methodsData, 0, classId);
+
+        const response = await this.sendCommand(
+            JDWPCommandSet.ReferenceType,
+            5, // Methods command
+            methodsData
+        );
+
+        let offset = 0;
+        const methodCount = this.readUint32(response.data, offset);
+        offset += 4;
+
+        for (let i = 0; i < methodCount; i++) {
+            const methodId = this.readMethodId(response.data, offset);
+            offset += 8;
+
+            const nameLength = this.readUint32(response.data, offset);
+            offset += 4;
+            const name = new TextDecoder().decode(
+                response.data.slice(offset, offset + nameLength)
+            );
+            offset += nameLength;
+
+            const sigLength = this.readUint32(response.data, offset);
+            offset += 4;
+            const sig = new TextDecoder().decode(
+                response.data.slice(offset, offset + sigLength)
+            );
+            offset += sigLength;
+
+            const modifiers = this.readUint32(response.data, offset);
+            offset += 4;
+
+            if (name === methodName && sig === signature) {
+                return methodId;
+            }
+        }
+
+        throw new Error(`Method ${methodName}${signature} not found`);
+
+    }
+
+    async getFirstMethodId(
+        classId: number,
+        methodNameWithSignature: string
+    ): Promise<number> {
+        // Parse method name and signature
+        // Format methodName(args)returnType
+        const parenIndex = methodNameWithSignature.indexOf('(');
+        if(parenIndex == -1) {
+            throw new Error(`Invalid method signature: ${methodNameWithSignature}`);
+        }
+
+        const methodName = methodNameWithSignature.substring(0, parenIndex);
+        const signature = methodNameWithSignature.substring(parenIndex);
+
+        return await this.getMethodId(classId, methodName, signature);
+    }
+
+    /*
+     * Get runtime instance (Runtime.runtime())
+     */
+    async getRuntime(threadId: number): Promise<number> {
+        // Get java.lang.Runtime class
+        const runtimeClassId = await this.getReferenceTypeId('Ljava/lang/Runtime;');
+
+        // Get the getRuntime() static method ID
+        const getRuntimeMethodId = await this.getFirstMethodId(
+            runtimeClassId,
+            'getRuntime()Ljava/lang/Runtime;'
+        );
+
+        // Invoke Runtime.getRuntime()
+        const result = await this.invokeStaticMethod(
+            runtimeClassId,
+            threadId,
+            getRuntimeMethodId,
+            [],
+            0
+        );
+
+        if (result.tag !== JDWPTagType.OBJECT || result.value === 0) {
+            throw new Error('Failed to get Runtime instance');
+        }
+
+        return result.value;
+    }
+
+    /*
+     * Execute a command inside the VM Runtim namespace
+     */
+    async exec(threadId: number, cmd: string): Promise<number> {
+        // Get runtime instance
+        const runtimeId = await this.getRuntime(threadId);
+
+        // Create string with command
+        const cmdStringId = await this.createString(cmd);
+
+        // Get runtime class ID for method lookup
+        const runtimeClassId = await this.getReferenceTypeId('Ljava/lang/Process;');
+        // Get exec method ID
+        const execMethodId = await this.getFirstMethodId(
+            runtimeClassId,
+            'exec(Ljava/lang/String;)Ljava/lang/Process;'
+        );
+
+        // Invoke exec method
+        const processResult = await this.invokeMethod(
+            runtimeId,
+            threadId,
+            runtimeClassId,
+            execMethodId,
+            [{ tag: JDWPTagType.STRING, value: cmdStringId }]
+        );
+
+        if (processResult.tag !== JDWPTagType.OBJECT) {
+            throw new Error('exec() did not return a Process object');
+        }
+
+        const processId = processResult.value;
+
+        // Get Process class for waitFor() method
+        const processClassId = await this.getReferenceTypeId('Ljava/lang/Process;');
+        const waitForMethodId = await this.getFirstMethodId(
+            processClassId,
+            'waitFor()I'
+        );
+
+        // Wait for process to complete
+        const exitCodeResult = await this.invokeMethod(
+            processId,
+            threadId,
+            processClassId,
+            waitForMethodId,
+            []
+        );
+
+        if (exitCodeResult.tag !== JDWPTagType.INT) {
+            throw new Error('waitFor() did not return an integer');
+        }
+
+        const exitCode = exitCodeResult.value;
+
+        if (exitCode !== 0) {
+            console.warn(`Command "${cmd}" returned exit code ${exitCode}`);
+        }
+
+        return exitCode;
+    }
+
+
 }
 
