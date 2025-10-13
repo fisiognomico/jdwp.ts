@@ -281,10 +281,7 @@ export class DebugManager {
     async suspendThread(pid: number, threadId: number): Promise<void> {
         const session = this.getSession(pid);
 
-        const data = new Uint8Array(8);
-        this.writeObjectId(data, 0, threadId);
-
-        await session.client.sendCommand(11, 2, data); // ThreadReference.Suspend
+        await session.client.suspendThread(threadId);
         session.suspendedThreads.add(threadId);
 
         this.emit('threadSuspended', { session, threadId });
@@ -619,6 +616,42 @@ export class DebugManager {
             return await this.executeCommandWebUSB(command);
         } else {
             return await this.executeCommandTCP(command);
+        }
+    }
+
+    /**
+     * Execute a command inside the app's process using JDWP Runtime.exec()
+     * 
+     * @param pid Process ID of the debugged app
+     * @param command Shell command to execute inside the app
+     * @param threadId Optional thread ID to use (defaults to current/first thread)
+     * @returns Exit code of the executed command
+     */
+    async executeJDWP(
+        pid: number,
+        command: string,
+        threadId?: number
+    ): Promise<number> {
+        const session = this.getSession(pid);
+
+        if(!threadId) {
+            if (session.currentThread) {
+                threadId = session.currentThread;
+            } else {
+                const threads = await this.getThreads(pid);
+                if (threads.length === 0) {
+                    throw new Error('No threads available for execution');
+                }
+                threadId = threads[0].threadId;
+            }
+        }
+
+        try {
+            const exitCode = await session.client.exec(threadId, command);
+            // console.log(`JDWP command completed with exit code: ${exitCode}`);
+            return exitCode;
+        } catch(error: any) {
+            throw new Error(`Failed to execute via JDWP Runtime: ${error}`);
         }
     }
 

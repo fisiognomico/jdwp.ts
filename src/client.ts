@@ -69,7 +69,8 @@ export class JDWPClient {
                     this.responseHandlers.delete(packet.id);
 
                     if (packet.data.length >= 2) {
-                        const errorCode = this.readUint16(packet.data, 0);
+                        // const errorCode = this.readUint16(packet.data, 0);
+                        const errorCode = (packet.commandSet << 8) | packet.command;
                         if (errorCode !== 0) {
                             handler.reject(new JDWPError(errorCode, packet.id,
                                 `JDWP command failed with error code ${errorCode}`));
@@ -102,12 +103,12 @@ export class JDWPClient {
                     // console.info(`[CALLBACK] Found for request ${event.requestId}`);
                     callback(event);
                 } else {
-                    console.log(`[NO CALLBACK] for request ${event.requestId}`);
+                    // console.log(`[NO CALLBACK] for request ${event.requestId}`);
                     // console.info(`[REGISTERED CALLBACKS] ${Array.from(this.eventCallbacks.keys()).join(', ')}`);
                 }
             }
         } else {
-            console.log(`[NOT COMPOSITE] CS: ${packet.commandSet}, Cmd: ${packet.command}`);
+            // console.log(`[NOT COMPOSITE] CS: ${packet.commandSet}, Cmd: ${packet.command}`);
         }
     }
 
@@ -147,7 +148,7 @@ export class JDWPClient {
                 case JDWPEventKind.SINGLE_STEP:
                     event.location = this.readLocation(data, offset);
                     offset += this.getLocationSize();
-                    console.info(` [BREAKPOINT] Location: ${event.location}, eventID : ${event.requestId}`);
+                    // console.info(` [BREAKPOINT] Location: ${event.location}, eventID : ${event.requestId}`);
                     break;
                 case JDWPEventKind.CLASS_PREPARE:
                     const typeTag = this.readUint8(data, offset);
@@ -483,7 +484,7 @@ export class JDWPClient {
         args: JDWPValue[] = [],
         options: number = 0
     ): Promise<JDWPValue> {
-        const data = new Uint8Array(32 + args.length * 9); // Approximate size
+        const data = new Uint8Array(64 + args.length * 16); // Approximate size
         let offset = 0;
 
         this.writeObjectId(data, offset, objectId);
@@ -500,8 +501,19 @@ export class JDWPClient {
         for (const arg of args) {
             offset += this.writeValue(data, offset, arg);
         }
+        // In case no argument is passed we still need to encode a zero
+        // value as args
+        if (args.length === 0) {
+            this.writeUint32(data, offset, 0);
+            offset += 4;
+        }
+
 
         this.writeUint32(data, offset, options);
+
+        // console.log(`[DEBUG] invokeMethod command data (${offset} bytes):`,
+        //             Array.from(data.slice(0, offset))
+        //             .map(b => b.toString(16).padStart(2, '0')).join(' '));
 
         const response = await this.sendCommand(
             JDWPCommandSet.ObjectReference,
@@ -804,10 +816,43 @@ export class JDWPClient {
         return this.setBreakpointAtLocation(location, suspendPolicy);
     }
 
+    async setBreakpointAndWait(
+        classSignature: string,
+        methodName: string,
+        timeoutMs: number = 10000
+        ): Promise<{ requestId: number, threadId: number }> {
+        const requestId = await this.setBreakpointAtMethodEntry(classSignature, methodName);
+        await this.resumeVM();
+
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Timeout waiting for breakpoint'));
+            }, timeoutMs);
+
+            this.onEvent(requestId, (event: JDWPEvent) => {
+                if (event.eventKind === JDWPEventKind.BREAKPOINT) {
+                    clearTimeout(timeout);
+                    resolve({ requestId, threadId: event.threadId });
+                }
+            });
+        });
+    }
+
+
+    // VM resume and thread management
+    //
+    async resumeVM(): Promise<void> {
+        // VirtualMachine.Resume (no arguments needed)
+        await this.sendCommand(
+            JDWPCommandSet.VirtualMachine,
+            9,  // Resume command
+            new Uint8Array(0)
+        );
+    }
     async resumeThread(threadId: number): Promise<void> {
-        const data = new Uint8Array(4);
-        this.writeUint32(data, 0, threadId);
-        await this.sendCommand(JDWPCommandSet.ThreadReference, 1, data); // Resume
+        const data = new Uint8Array(8);
+        this.writeObjectId(data, 0, threadId);
+        await this.sendCommand(JDWPCommandSet.ThreadReference, 3, data); // Resume
     }
 
     async stepThread(
@@ -829,11 +874,18 @@ export class JDWPClient {
         await this.sendCommand(JDWPCommandSet.ThreadReference, 9, data); // Step
     }
 
+    async suspendThread(threadId: number): Promise<void> {
+        const data = new Uint8Array(8);
+        this.writeObjectId(data, 0, threadId);
+        await this.sendCommand(11, 2, data); // ThreadReference.Suspend
+    }
+
     async getReferenceTypeId(signature: string): Promise<number> {
         // Convert signature to bytes
         const encoder = new TextEncoder();
         const signatureBytes = encoder.encode(signature);
 
+        // console.log(`[DEBUG] getReferenceTypeId: Looking up '${signature}'`);
         // Create buffer with 4-byte length prefix
         const data = new Uint8Array(4 + signatureBytes.length);
         // Write length (4 bytes, big-endian)
@@ -861,6 +913,7 @@ export class JDWPClient {
 
         // Read type ID
         const typeId = this.readReferenceTypeId(response.data, offset);
+        // console.log(`[DEBUG] getReferenceTypeId: Found ${classesCount} classes, returning ID ${typeId}`);
 
         return typeId;
     }
@@ -1127,9 +1180,6 @@ export class JDWPClient {
 
     // For debugging porpouse
     public testParseEvent(bytes: Uint8Array): void {
-        // Wireshark directly outputs in C arrays
-        // const hex = hexString.replace(/\s+/g, '');
-        // const bytes = new Uint8Array(hex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)));
 
         console.log(`Testing parse of ${bytes.length} bytes`);
         const packet = this.parsePacket(bytes);
@@ -1228,15 +1278,36 @@ export class JDWPClient {
         }
 
         // Invoke options, typically 0
-        this.writeUint32(data, offset, 0);
+        this.writeUint32(data, offset, options);
+        offset += 4;
+
+        // Debug: log the exact bytes we're sending
+        // console.log(`[DEBUG] invokeStaticMethod command data (${offset} bytes):`,
+        //     Array.from(data.slice(0, offset)).map(b => b.toString(16).padStart(2, '0')).join(' '));
 
         const response = await this.sendCommand(
             JDWPCommandSet.ClassType,
             3, // Invoke Method
-            data.slice(0, offset+4)
+            data.slice(0, offset)
         );
+        // console.log("Response from invokeStaticMethod: " , response);
+        // Check if we have response data
+        if (response.data.length === 0) {
+            throw new Error('Static method invocation returned no data');
+        }
 
-        return this.parseValue(response.data, 0);
+        // Check for exception in response
+        // Response format: [return value tag][return value] OR [exception tag][exception object]
+        // const tag = this.readUint8(response.data, 0);
+        // console.log("[InvokeStatic] Response tag: ", tag);
+
+        // If the response starts with an exception marker
+        if (response.data.length >= 9) {
+            const value = this.parseValue(response.data, 0);
+            return value;
+        } else {
+            throw new Error(`Invalid response size for static method: ${response.data.length} bytes`);
+        }
     }
 
     /*
@@ -1260,6 +1331,8 @@ export class JDWPClient {
         let offset = 0;
         const methodCount = this.readUint32(response.data, offset);
         offset += 4;
+        // console.log(`[DEBUG] Searching for method ${methodName}${signature} in class ${classId}`);
+        // console.log(`[DEBUG] Found ${methodCount} methods in class`);
 
         for (let i = 0; i < methodCount; i++) {
             const methodId = this.readMethodId(response.data, offset);
@@ -1282,7 +1355,11 @@ export class JDWPClient {
             const modifiers = this.readUint32(response.data, offset);
             offset += 4;
 
+            // Debug: show all methods found
+            // console.log(`[DEBUG]   Method ${i}: ${name}${sig} (id=${methodId}, mod=${modifiers})`);
+
             if (name === methodName && sig === signature) {
+                // console.log(`[DEBUG] Found matching method: ${name}${sig} with ID ${methodId}`);
                 return methodId;
             }
         }
@@ -1314,12 +1391,14 @@ export class JDWPClient {
     async getRuntime(threadId: number): Promise<number> {
         // Get java.lang.Runtime class
         const runtimeClassId = await this.getReferenceTypeId('Ljava/lang/Runtime;');
+        // console.log("Got runtime class ID : ", runtimeClassId);
 
         // Get the getRuntime() static method ID
         const getRuntimeMethodId = await this.getFirstMethodId(
             runtimeClassId,
             'getRuntime()Ljava/lang/Runtime;'
         );
+        // console.log(`[DEBUG] Invoking Runtime.getRuntime() - Class: ${runtimeClassId}, Method: ${getRuntimeMethodId}, Thread: ${threadId}`);
 
         // Invoke Runtime.getRuntime()
         const result = await this.invokeStaticMethod(
@@ -1330,6 +1409,7 @@ export class JDWPClient {
             0
         );
 
+        // console.log(`[DEBUG] runtime information: type ${result.tag}, value: ${result.value}`);
         if (result.tag !== JDWPTagType.OBJECT || result.value === 0) {
             throw new Error('Failed to get Runtime instance');
         }
@@ -1348,7 +1428,9 @@ export class JDWPClient {
         const cmdStringId = await this.createString(cmd);
 
         // Get runtime class ID for method lookup
-        const runtimeClassId = await this.getReferenceTypeId('Ljava/lang/Process;');
+        const runtimeClassId = await this.getReferenceTypeId('Ljava/lang/Runtime;');
+        // console.log(`[DEBUG] exec: Runtime instance=${runtimeId}, Runtime class=${runtimeClassId}`);
+        // console.log(`[DEBUG] Command string is ${cmdStringId}`);
         // Get exec method ID
         const execMethodId = await this.getFirstMethodId(
             runtimeClassId,
@@ -1356,15 +1438,18 @@ export class JDWPClient {
         );
 
         // Invoke exec method
+        // console.log(`[DEBUG] Calling invokeMethod for exec...`);
         const processResult = await this.invokeMethod(
             runtimeId,
             threadId,
             runtimeClassId,
             execMethodId,
-            [{ tag: JDWPTagType.STRING, value: cmdStringId }]
+            [{ tag: JDWPTagType.OBJECT, value: cmdStringId }]
         );
+        // console.log("[DEBUG] invokeMethod returned: ", processResult);
 
         if (processResult.tag !== JDWPTagType.OBJECT) {
+            console.log(`[DEBUG] Expected OBJECT tag (76), got tag ${processResult.tag}`);
             throw new Error('exec() did not return a Process object');
         }
 
@@ -1372,6 +1457,7 @@ export class JDWPClient {
 
         // Get Process class for waitFor() method
         const processClassId = await this.getReferenceTypeId('Ljava/lang/Process;');
+        // console.log(`[DEBUG] getFirstClassId(Ljava/lang/Process;) = ${processClassId}`);
         const waitForMethodId = await this.getFirstMethodId(
             processClassId,
             'waitFor()I'
@@ -1387,6 +1473,7 @@ export class JDWPClient {
         );
 
         if (exitCodeResult.tag !== JDWPTagType.INT) {
+            console.log("[DEBUG] waitFor returned: ", exitCodeResult)
             throw new Error('waitFor() did not return an integer');
         }
 
