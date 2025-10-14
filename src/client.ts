@@ -1486,6 +1486,34 @@ export class JDWPClient {
         return exitCode;
     }
 
+    /*
+     * This utility is meant to load a dynamic library at runtime
+     * specified by path.
+     * This function calls Runtime.getRuntime().load(cmd)
+     */
+    async load(threadId: number, path: string): Promise<void> {
+
+        const runtimeId = await this.getRuntime(threadId);
+        const cmdStringId = await this.createString(path);
+
+        const getRuntimeId = await this.getReferenceTypeId(
+            "Ljava/lang/Runtime;"
+        );
+        const loadMethod = await this.getFirstMethodId(
+            getRuntimeId,
+            "load(Ljava/lang/String;)V"
+        );
+
+        await this.invokeMethod(
+            runtimeId,
+            threadId,
+            getRuntimeId,
+            loadMethod,
+            [{tag: JDWPTagType.OBJECT, value: cmdStringId}]
+        );
+        // V is JDWPTagType.VOID
+        return;
+    }
 
 }
 

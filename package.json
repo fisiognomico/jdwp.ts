@@ -14,6 +14,7 @@
     "test:readloop": "ts-node src/tests/read-loop.ts",
     "test:exec": "ts-node src/tests/command-exec.ts",
     "debug:example": "ts-node src/examples/spawn-and-debug.ts",
+    "loadlib:example": "ts-node src/examples/load-library.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts"
   },

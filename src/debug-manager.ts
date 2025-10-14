@@ -655,6 +655,38 @@ export class DebugManager {
         }
     }
 
+    /**
+     * Load a dynamic library using JDWP debug interface
+     * @param pid Process ID of the debugged app
+     * @param path Full path of the library to be Loaded
+     * @param threadId Optional thread ID to use (defaults to current/first thread)
+     */
+    async loadLibraryJDWP(
+        pid: number,
+        path: string,
+        threadId?: number
+    ): Promise<void> {
+        const session = this.getSession(pid);
+
+        if(!threadId) {
+            if (session.currentThread) {
+                threadId = session.currentThread;
+            } else {
+                const threads = await this.getThreads(pid);
+                if (threads.length === 0) {
+                    throw new Error("No threads available for execution");
+                }
+                threadId = threads[0].threadId;
+            }
+        }
+
+        try {
+            await session.client.load(threadId, path);
+        } catch (error: any) {
+            throw new Error(`Failed to load ${path}: ${error}`);
+        }
+    }
+
     private async getDebuggablePidsWebUSB():
         Promise<number[]> {
         const config = this.config as WebUSBConfig;
