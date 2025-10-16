@@ -40,11 +40,11 @@ async function loadFridaGadget(targetApp: string) {
 
         // Spawn app in debug mode
         console.log(chalk.gray('Starting app in debug mode...'));
-        const setPackageDebugMode = `shell,v2,,raw:am set-debug-app -w ${packageName}`;
+        const setPackageDebugMode = `shell,v2,,raw:am set-debug-app -w ${targetApp}`;
         await debugManager.executeCommand(setPackageDebugMode);
 
         // Find MainActivity
-        const findMainActivity = `shell,v2,,raw:cmd package resolve-activity --brief ${packageName}`;
+        const findMainActivity = `shell,v2,,raw:cmd package resolve-activity --brief ${targetApp}`;
         const lines = await debugManager.executeCommand(findMainActivity);
         const unlastLine = lines[(lines.length - 1)].split(/\r?\n/);
         const lastLine = unlastLine[1].trim();
@@ -54,7 +54,7 @@ async function loadFridaGadget(targetApp: string) {
         } else {
             // Switch to default name
             console.warn(`[+] Issue with cmd parsing ${lines}`);
-            mainActivity = `${packageName}/.MainActivity`;
+            mainActivity = `${targetApp}/.MainActivity`;
         }
         console.log(chalk.gray(`MainActivity: ${mainActivity}`));
 
@@ -68,10 +68,10 @@ async function loadFridaGadget(targetApp: string) {
 
         // Wait for app PID
         console.log(chalk.gray('Waiting for app...'));
-        const appPid = await debugManager.findAppPid(packageName);
+        const appPid = await debugManager.findAppPid(targetApp);
         console.log(chalk.green(`App started (PID: ${appPid})`));
         // Start debug session
-        const debugSession = await debugManager.startDebugging(packageName, appPid);
+        const debugSession = await debugManager.startDebugging(targetApp, appPid);
 
         // Set breakpoint on Activity.onCreate()
         const activityClass = "Landroid/app/Activity;";
@@ -97,7 +97,7 @@ async function loadFridaGadget(targetApp: string) {
             console.log(chalk.gray('Copying frida gadget to app data...'));
             const exitCode2 = await debugManager.executeJDWP(
                 appPid,
-                `cp /data/local/tmp/${libFridaGadget} /data/data/${packageName}/${libFridaGadget}`
+                `cp /data/local/tmp/${libFridaGadget} /data/data/${targetApp}/${libFridaGadget}`
             );
             console.log(chalk.green(`✅ cp gadget exit code: ${exitCode2}\n`));
 
@@ -113,7 +113,7 @@ async function loadFridaGadget(targetApp: string) {
             console.log(chalk.gray('Copying gadget config...'));
             const exitCode4 = await debugManager.executeJDWP(
                 appPid,
-                `cp /data/local/tmp/${libFridaConfig} /data/data/${packageName}/${libFridaConfig}`
+                `cp /data/local/tmp/${libFridaConfig} /data/data/${targetApp}/${libFridaConfig}`
             );
             console.log(chalk.green(`✅ cp config exit code: ${exitCode4}\n`));
 
@@ -122,7 +122,7 @@ async function loadFridaGadget(targetApp: string) {
             console.log(chalk.gray('Loading Frida gadget...'));
             await debugManager.loadLibraryJDWP(
                 appPid,
-                `/data/data/${packageName}/${libFridaGadget}`
+                `/data/data/${targetApp}/${libFridaGadget}`
             );
             console.log(chalk.green(`✅ Loaded Frida gadget.`));
         } finally {
