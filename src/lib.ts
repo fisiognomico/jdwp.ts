@@ -19,7 +19,7 @@ export async function adbRun(adbClient: Adb, command: string | readonly string[]
     shell.stdout.pipeThrough(new TextDecoderStream()).pipeTo(
       new WritableStream({
         write(chunk) {
-         ret.output = chunk;
+         ret.output += chunk;
         },
       }),
     ),
