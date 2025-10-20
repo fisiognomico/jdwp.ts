@@ -20,7 +20,6 @@ import {
     JDWPVMCommands,
     JDWPTransport
 } from './protocol';
-import { NodeTcpJDWPTransport } from "./node-debug-cli";
 import { adbRun } from './lib';
 
 export interface DebugSession {
@@ -117,6 +116,7 @@ export class DebugManager {
         if (this.config.type === 'web') {
             return new WebUSBJDWPTransport(this.config.serverClient, pid);
         } else {
+            const { NodeTcpJDWPTransport } = await import('./node-debug-cli');
             return new NodeTcpJDWPTransport(
                 this.config.serverClient,
                 this.config.deviceSerial,
@@ -738,6 +738,7 @@ export class DebugManager {
     private async findAppPidWebUSB(packageName: string): Promise<number> {
         const config = this.config as WebUSBConfig;
         try {
+            // TODO can I grep on the device?
             const processDesc = await adbRun(config.adb, 'ps');
             const output = processDesc.output;
 

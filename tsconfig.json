@@ -24,6 +24,9 @@
   "exclude": [
     "node_modules",
     "dist",
+    "src/tests",
+    "src/examples",
+    "src/node-debug-cli.ts",
     "**/*.test.ts"
   ]
 }
