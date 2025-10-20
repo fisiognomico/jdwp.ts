@@ -14,28 +14,17 @@ export class WebUSBJDWPTransport implements JDWPTransport {
     private pendingData: Uint8Array = new Uint8Array(0);
 
     constructor(
-        private adbConnection: AdbDaemonConnection,
+        private adb: Adb,
         private pid: number
     ) {}
 
     async connect(): Promise<void> {
         try {
-            // Create dispatcher with proper options
-            const dispatcherOpts: AdbPacketDispatcherOptions = {
-                calculateChecksum: true,
-                appendNullToServiceString: true,
-                preserveConnection: false,
-                maxPayloadSize: 64 * 1024, // 64KB - standard ADB max payload
-                initialDelayedAckBytes: 0,
-            };
-
-            const dispatcher = new AdbPacketDispatcher(
-                this.adbConnection,
-                dispatcherOpts
-            );
-
             // Create socket connection to JDWP service
-            this.socket = await dispatcher.createSocket(`jdwp:${this.pid}`);
+            this.socket = await this.adb.createSocket(`jdwp:${this.pid}`);
+            if (!this.socket) {
+                throw new Error('Failed to create socket: socket is null');
+            }
 
             // Get readable and writable streams from the socket
             this.reader = this.socket.readable.getReader();
@@ -44,8 +33,7 @@ export class WebUSBJDWPTransport implements JDWPTransport {
             this.connected = true;
 
             // Perform JDWP handshake
-            this.pendingData = await performJDWPHandshake(this.reader, this.writer);
-            console.log("[+] Pending data: ", this.pendingData.buffer);
+            this.pendingData = await performJDWPHandshake(this.reader!, this.writer);
 
             // Start reading loop
             this.readLoop().catch(error => {

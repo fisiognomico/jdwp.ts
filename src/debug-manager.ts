@@ -114,7 +114,7 @@ export class DebugManager {
 
     private async createTransport(pid: number): Promise<JDWPTransport> {
         if (this.config.type === 'web') {
-            return new WebUSBJDWPTransport(this.config.serverClient, pid);
+            return new WebUSBJDWPTransport(this.config.adb, pid);
         } else {
             const { NodeTcpJDWPTransport } = await import('./node-debug-cli');
             return new NodeTcpJDWPTransport(
