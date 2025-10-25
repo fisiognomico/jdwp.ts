@@ -1,6 +1,7 @@
 {
-  "name": "jdwp",
-  "version": "1.0.0",
+  "name": "libjdwp",
+  "version": "0.1.0",
+  "author": "Fisiognomico",
   "description": "JDWP debugger for Android apps via WebUSB/ADB",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
