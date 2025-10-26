@@ -60,13 +60,10 @@ export type TCPConfig = {
     deviceSerial: string;
 }
 
-export class DebugManager {
+export class DebugManager<T extends ConnectionConfig = ConnectionConfig> {
     private sessions: Map<number, DebugSession> = new Map();
     private eventListeners: Map<string, Set<Function>> = new Map();
-    private config: ConnectionConfig;
-    constructor(config: ConnectionConfig) {
-        this.config = config;
-    }
+    constructor(private config: T) {}
 
     // === Session Management ===
 
@@ -115,17 +112,17 @@ export class DebugManager {
     }
 
     private async createTransport(pid: number): Promise<JDWPTransport> {
-        if (JDWP_BROWSER_BUILD && (this.config.type === 'web')) {
-            return new WebUSBJDWPTransport(this.config.adb, pid);
-        } else if (this.config.type === 'tcp') {
+        if (JDWP_BROWSER_BUILD) {
+            const webConfig = this.config as WebUSBConfig;
+            return new WebUSBJDWPTransport(webConfig.adb, pid);
+        } else {
+            const tcpConfig = this.config as TCPConfig;
             const { NodeTcpJDWPTransport } = await import('./node-debug-cli');
             return new NodeTcpJDWPTransport(
-                this.config.serverClient,
-                this.config.deviceSerial,
+                tcpConfig.serverClient,
+                tcpConfig.deviceSerial,
                 pid
             );
-        } else {
-            throw new Error(`The configuration ${this.config.type} is not accepted`);
         }
     }
 
@@ -625,7 +622,7 @@ export class DebugManager {
 
     /**
      * Execute a command inside the app's process using JDWP Runtime.exec()
-     * 
+     *
      * @param pid Process ID of the debugged app
      * @param command Shell command to execute inside the app
      * @param threadId Optional thread ID to use (defaults to current/first thread)

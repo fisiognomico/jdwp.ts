@@ -255,7 +255,7 @@ class JDWPCli {
               deviceSerial: this.deviceSerial,
               type: 'tcp',
             };
-            this.debugManager = new DebugManager(tcpConfig);
+            this.debugManager = new DebugManager<TCPConfig>(tcpConfig);
 
 
             console.log(chalk.green(`✅ Connected to device: ${this.deviceSerial}`));

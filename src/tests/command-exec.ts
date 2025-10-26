@@ -34,7 +34,7 @@ async function demonstrateruntimeExecution(targetApp: string) {
             serverClient: serverClient,
             deviceSerial: deviceSerial,
         };
-        const debugManager = new DebugManager(tcpConfig);
+        const debugManager = new DebugManager<TCPConfig>(tcpConfig);
 
         // Spawn app in debug mode
         console.log(chalk.gray('Starting app in debug mode...'));

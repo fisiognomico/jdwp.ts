@@ -75,7 +75,7 @@ const config: TCPConfig = {
     serverClient,
     deviceSerial: devices[0].serial
 };
-const debugManager = new DebugManager(config);
+const debugManager = new DebugManager<TCPConfig>(config);
 
 // Set up breakpoint handler
 debugManager.on('breakpointHit', async (data) => {
@@ -143,7 +143,7 @@ const config: WebUSBConfig = {
     deviceSerial: device.serial,
     adb: await Adb.authenticate({ connection, ... })
 };
-const debugManager = new DebugManager(config);
+const debugManager = new DebugManager<WebUSBConfig>(config);
 
 // Rest is identical to TCP usage...
 ```

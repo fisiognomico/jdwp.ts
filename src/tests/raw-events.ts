@@ -30,7 +30,7 @@ async function testRawEvents(packageName: string) {
           deviceSerial: deviceSerial,
           serverClient: serverClient,
         }
-        const debugManager = new DebugManager(tcpConfig);
+        const debugManager = new DebugManager<TCPConfig>(tcpConfig);
 
         // Wait for app PID
         console.log(chalk.gray('Waiting for app...'));
