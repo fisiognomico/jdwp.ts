@@ -1,6 +1,6 @@
 {
   "name": "libjdwp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Fisiognomico",
   "description": "JDWP debugger for Android apps via WebUSB/ADB",
   "main": "./dist/index.js",
@@ -14,6 +14,8 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
     "build:browser": "webpack",
     "serve": "webpack serve --open",
     "cli": "ts-node src/node-debug-cli.ts",
@@ -27,6 +29,11 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts"
   },
+  "files": [
+    "dist",
+    "package.json",
+    "README.md"
+  ],
   "dependencies": {
     "@yume-chan/adb-credential-web": "^2.1.0",
     "@yume-chan/adb-daemon-webusb": "^2.1.0",
