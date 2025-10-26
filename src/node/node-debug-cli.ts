@@ -2,15 +2,15 @@
 import { Adb, AdbServerClient } from "@yume-chan/adb";
 import { AdbServerNodeTcpConnector } from "@yume-chan/adb-server-node-tcp";
 import { AdbPacketDispatcher, AdbSocket } from "@yume-chan/adb";
-import { TCPConfig, DebugManager, DebugSession } from './debug-manager';
+import { TCPConfig, DebugManager, DebugSession } from '../debug-manager';
 import {ReadableStreamDefaultReader, WritableStreamDefaultWriter} from "@yume-chan/stream-extra";
 import * as readline from 'readline';
 import chalk from "chalk";
 
 // Import your JDWP modules
-import { JDWPClient } from './client';
-import { JDWPTransport } from './protocol';
-import { performJDWPHandshake } from "./lib";
+import { JDWPClient } from '../client';
+import { JDWPTransport } from '../protocol';
+import { performJDWPHandshake } from "../lib";
 
 class NodeTcpJDWPTransport implements JDWPTransport {
     private socket: AdbSocket | null = null;

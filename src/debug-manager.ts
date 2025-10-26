@@ -117,7 +117,7 @@ export class DebugManager<T extends ConnectionConfig = ConnectionConfig> {
             return new WebUSBJDWPTransport(webConfig.adb, pid);
         } else {
             const tcpConfig = this.config as TCPConfig;
-            const { NodeTcpJDWPTransport } = await import('./node-debug-cli');
+            const { NodeTcpJDWPTransport } = await import('./node/node-debug-cli');
             return new NodeTcpJDWPTransport(
                 tcpConfig.serverClient,
                 tcpConfig.deviceSerial,

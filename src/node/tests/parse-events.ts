@@ -1,5 +1,5 @@
-import { JDWPClient } from '../client';
-import { JDWPTransport } from '../protocol';
+import { JDWPClient } from '../../client';
+import { JDWPTransport } from '../../protocol';
 import { events } from '../static/events';
 
 class NullTransport implements JDWPTransport {

@@ -1,3 +1,5 @@
+const webpack = require('webpack');
+
 module.exports = {
   entry: './src/index.ts',
   mode: 'development',
@@ -21,12 +23,7 @@ module.exports = {
         use: 'ts-loader',
         exclude: [
           /node_modules/,
-          /src\/tests/,
-          /src\/examples/,
-          /src\/adb-daemon-socket\.ts/,
-          /src\/node-debug-cli\.ts/,
-          /src\/example-.+\.ts/,
-          /src\/test-.+\.ts/
+          \*node
         ]
       }
     ]

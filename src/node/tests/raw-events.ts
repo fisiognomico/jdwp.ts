@@ -1,6 +1,6 @@
 import { AdbServerClient } from "@yume-chan/adb";
 import { AdbServerNodeTcpConnector } from "@yume-chan/adb-server-node-tcp";
-import { DebugManager, TCPConfig } from '../debug-manager';
+import { DebugManager, TCPConfig } from '../../debug-manager';
 import { NodeTcpJDWPTransport } from "../node-debug-cli";
 import chalk = require("chalk");
 

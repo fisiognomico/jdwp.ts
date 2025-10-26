@@ -1,6 +1,6 @@
 {
   "name": "libjdwp",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "author": "Fisiognomico",
   "description": "JDWP debugger for Android apps via WebUSB/ADB",
   "main": "./dist/index.js",
@@ -13,7 +13,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --project tsconfig.browser.json && node scripts/clean-dist.js",
+    "build:webpack": "webpack --config webpack.config.js",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "build:browser": "webpack",

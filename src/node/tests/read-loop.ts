@@ -2,8 +2,8 @@
 import { AdbServerClient } from "@yume-chan/adb";
 import { AdbServerNodeTcpConnector } from "@yume-chan/adb-server-node-tcp";
 import { NodeTcpJDWPTransport } from '../node-debug-cli';
-import { JDWPClient } from '../client';
-import { JDWPEventKind } from "../protocol";
+import { JDWPClient } from '../../client';
+import { JDWPEventKind } from "../../protocol";
 import chalk = require("chalk");
 
 async function checkReadLoop(packageName: string) {

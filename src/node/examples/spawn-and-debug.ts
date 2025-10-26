@@ -1,7 +1,7 @@
 import { AdbServerClient } from "@yume-chan/adb";
 import { AdbServerNodeTcpConnector } from "@yume-chan/adb-server-node-tcp";
-import { DebugManager, TCPConfig } from '../debug-manager';
-import { JDWPEvent } from '../protocol';
+import { DebugManager, TCPConfig } from '../../debug-manager';
+import { JDWPEvent } from '../../protocol';
 import chalk = require("chalk");
 
 async function spawnAndDebug(packageName: string) {

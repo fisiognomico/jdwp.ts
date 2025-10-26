@@ -18,11 +18,16 @@
     "types": ["node"]
   },
   "include": [
-    "src/**/*"
+    "src/index.ts",
+    "src/protocol.ts",
+    "src/lib.ts",
+    "src/client.ts",
+    "src/debug-manager.ts",
+    "src/adb-transport.ts"
   ],
   "exclude": [
     "node_modules",
     "dist",
-    "**/*.test.ts"
+    "src/node/**/*"
   ]
 }
