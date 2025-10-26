@@ -1,1 +1,1 @@
-export {DebugManager, TCPConfig, WebUSBConfig} from "./debug-manager";
+export {DebugManager, WebUSBConfig} from "./debug-manager";

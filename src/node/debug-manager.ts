@@ -1,6 +1,6 @@
 // debug-manager.ts - High-level debugging manager
-import { JDWPClient } from './client';
-import { WebUSBJDWPTransport } from './adb-transport';
+import { JDWPClient } from '../client';
+import { NodeTcpJDWPTransport } from './node-debug-cli';
 import {Adb, AdbDaemonConnection, AdbPacketDispatcher, AdbServerClient} from "@yume-chan/adb";
 import {
     JDWPCommandSet,
@@ -19,8 +19,8 @@ import {
     JDWPStepDepth,
     JDWPVMCommands,
     JDWPTransport
-} from './protocol';
-import { adbRun } from './lib';
+} from '../protocol';
+import { adbRun } from '../lib';
 
 export interface DebugSession {
     pid: number;
@@ -110,8 +110,12 @@ export class DebugManager<T extends ConnectionConfig = ConnectionConfig> {
     }
 
     private async createTransport(pid: number): Promise<JDWPTransport> {
-            const webConfig = this.config as WebUSBConfig;
-            return new WebUSBJDWPTransport(webConfig.adb, pid);
+            const tcpConfig = this.config as TCPConfig;
+            return new NodeTcpJDWPTransport(
+                tcpConfig.serverClient,
+                tcpConfig.deviceSerial,
+                pid
+            );
     }
 
     async stopDebugging(pid: number): Promise<void> {

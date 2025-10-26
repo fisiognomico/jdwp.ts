@@ -23,7 +23,7 @@ module.exports = {
         use: 'ts-loader',
         exclude: [
           /node_modules/,
-          \*node
+          /src/node
         ]
       }
     ]
@@ -31,11 +31,6 @@ module.exports = {
   resolve: {
     extensions: ['.ts', '.js']
   },
-  plugins: [
-    new webpack.DefinePlugin({
-      JDWP_BROWSER_BUILD: 'true'   // Set at build time
-    })
-  ],
   optimization: {
     usedExports: true,    // Enable tree-shaking
     sideEffects: false
