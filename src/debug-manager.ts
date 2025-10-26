@@ -22,6 +22,8 @@ import {
 } from './protocol';
 import { adbRun } from './lib';
 
+declare const JDWP_BROWSER_BUILD: boolean;
+
 export interface DebugSession {
     pid: number;
     packageName: string;
@@ -113,15 +115,17 @@ export class DebugManager {
     }
 
     private async createTransport(pid: number): Promise<JDWPTransport> {
-        if (this.config.type === 'web') {
+        if (JDWP_BROWSER_BUILD && (this.config.type === 'web')) {
             return new WebUSBJDWPTransport(this.config.adb, pid);
-        } else {
+        } else if (this.config.type === 'tcp') {
             const { NodeTcpJDWPTransport } = await import('./node-debug-cli');
             return new NodeTcpJDWPTransport(
                 this.config.serverClient,
                 this.config.deviceSerial,
                 pid
             );
+        } else {
+            throw new Error(`The configuration ${this.config.type} is not accepted`);
         }
     }
 
